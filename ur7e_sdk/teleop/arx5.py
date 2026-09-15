@@ -268,15 +268,29 @@ class ARX5Leader:
                 previous_time = now
                 pose, width = self.read()
                 state = self._joint_state()
-                if (
-                    np.max(np.abs(state.pos() - previous_cmd))
-                    > settings["max_joint_tracking_error"]
-                    or np.max(np.abs(state.vel())) > plan["joint_speed"] * 1.5
-                ):
-                    raise RuntimeError(
-                        "ARX alignment joint tracking/speed limit exceeded"
-                    )
                 elapsed = now - started
+                position = np.asarray(state.pos())
+                tracking = np.abs(position - previous_cmd)
+                speed = np.abs(state.vel())
+                tracking_limit = settings["max_joint_tracking_error"]
+                speed_limit = plan["joint_speed"] * 1.5
+                violations = []
+                for i in np.flatnonzero(tracking > tracking_limit):
+                    violations.append(
+                        f"J{i + 1} tracking error={tracking[i]:.4f} rad "
+                        f"> {tracking_limit:.4f} rad "
+                        f"(measured={position[i]:.4f}, command={previous_cmd[i]:.4f})"
+                    )
+                for i in np.flatnonzero(speed > speed_limit):
+                    violations.append(
+                        f"J{i + 1} measured speed={speed[i]:.4f} rad/s "
+                        f"> {speed_limit:.4f} rad/s"
+                    )
+                if violations:
+                    raise RuntimeError(
+                        f"ARX alignment stopped at {elapsed:.3f}s: "
+                        + "; ".join(violations)
+                    )
                 if elapsed > settings["timeout"]:
                     raise TimeoutError("ARX alignment did not settle before timeout")
                 u = min(1.0, elapsed / plan["duration"])
