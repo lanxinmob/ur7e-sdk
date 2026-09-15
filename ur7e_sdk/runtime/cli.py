@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import json
 import time
 from contextlib import ExitStack
@@ -75,6 +76,21 @@ def run(args):
                 r.disconnect()
         return
     policy = load_policy(args.factory) if args.command == "policy" else None
+    if args.command == "arx5":
+        from ur7e_sdk.teleop.arx5 import ARX5Leader
+
+        try:
+            importlib.import_module("arx5_interface")
+        except ImportError as exc:
+            raise RuntimeError(
+                "Cannot import arx5_interface; UR has not been connected. "
+                "Set PYTHONPATH to the actual ARX5 SDK python directory "
+                "(not /path/to/arx5-sdk) and use the Python version matching "
+                f"the compiled binding. Import error: {exc}"
+            ) from exc
+        leader_configs = config.get("arx5", [])
+        if len(leader_configs) != len(config["arms"]):
+            raise ValueError("Configure one arx5 entry per UR arm")
     with ExitStack() as stack:
         env = stack.enter_context(BimanualUREnv(config))
         obs = _warmup(env, args.obs_steps)
@@ -88,11 +104,6 @@ def run(args):
                 print("w/s x, a/d y, r/f z; i/k rx, j/l ry, u/o rz; [/] close/open")
                 teleop = KeyboardTeleop(target)
             else:
-                from ur7e_sdk.teleop.arx5 import ARX5Leader
-
-                leader_configs = config.get("arx5", [])
-                if len(leader_configs) != env.n_arms:
-                    raise ValueError("Configure one arx5 entry per UR arm")
                 for lc in leader_configs:
                     leader = ARX5Leader(lc)
                     stack.callback(leader.close)

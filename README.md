@@ -115,14 +115,14 @@ ur7e --config configs/ur7e.yaml keyboard
 | u / o | 绕 z 正 / 负，0.01 rad |
 | ] / [ | 打开 / 闭合，2 mm |
 
-ARX5 模式需要另行安装 [ARX5 SDK](https://github.com/lanxinmob/arx5-sdk)，按照其说明编译 Python 绑定、配置 SocketCAN 和模型资源。以下命令在本仓库根目录执行，将 `ARX5_SDK_DIR` 替换为你的 ARX5 SDK 目录。如果绑定依赖相对 URDF 路径，按 ARX5 SDK 要求设置工作目录，并用 `UR7E_SDK_DIR` 指定本项目配置的绝对路径。
+ARX5 模式需要另行安装 [ARX5 SDK](https://github.com/lanxinmob/arx5-sdk)，按照其说明编译 Python 绑定、配置 SocketCAN 和模型资源。以下命令在本仓库根目录执行，终端提示时输入 ARX5 SDK 的实际绝对路径。该目录的 `python/` 下应有编译好的 `arx5_interface*.so`，仅有 `.pyi` 文件不够。如果绑定依赖相对 URDF 路径，按 ARX5 SDK 要求设置工作目录，并用 `UR7E_SDK_DIR` 指定本项目配置的绝对路径。
 
 ```bash
 conda activate ur7e_sdk
 export UR7E_SDK_DIR="$PWD"
-export ARX5_SDK_DIR=/path/to/arx5-sdk
+read -r -p "ARX5 SDK 目录（绝对路径）: " ARX5_SDK_DIR
 export PYTHONPATH="$ARX5_SDK_DIR/python:${PYTHONPATH:-}"
-python -c 'import arx5_interface'
+python -c 'import arx5_interface; print("ARX5 import OK")' && \
 ur7e --config "$UR7E_SDK_DIR/configs/ur7e.yaml" arx5
 ```
 
