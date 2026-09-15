@@ -38,6 +38,10 @@ arx5:
   - model: X5
     interface: can0
     drag: true
+    gravity_scale: 1.0
+    drag_kd_scale: 0.05
+    drag_gripper_kd: 0.05
+    gripper_open_readout: -3.4
     axes_rpy: [0, 0, 0]
     position_scale: 1.0
     gripper_width: 0.085

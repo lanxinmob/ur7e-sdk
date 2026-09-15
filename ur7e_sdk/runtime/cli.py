@@ -27,7 +27,7 @@ def run(args):
     config = load_config(
         args.config,
         require_commissioned=args.command
-        not in ("diagnose", "gripper-status", "gripper-activate"),
+        not in ("diagnose", "gripper-status", "gripper-activate", "arx5-drag"),
     )
     if args.command in ("gripper-status", "gripper-activate"):
         from ur7e_sdk.hardware.robotiq import Robotiq2F85
@@ -76,7 +76,7 @@ def run(args):
                 r.disconnect()
         return
     policy = load_policy(args.factory) if args.command == "policy" else None
-    if args.command == "arx5":
+    if args.command in ("arx5", "arx5-drag"):
         from ur7e_sdk.teleop.arx5 import ARX5Leader
 
         try:
@@ -91,9 +91,27 @@ def run(args):
         leader_configs = config.get("arx5", [])
         if len(leader_configs) != len(config["arms"]):
             raise ValueError("Configure one arx5 entry per UR arm")
-        from ur7e_sdk.runtime.ur_home import home_ur, load_homes
+        if args.command == "arx5":
+            from ur7e_sdk.runtime.ur_home import home_ur, load_homes
 
-        homes = load_homes(config, args.config)
+            homes = load_homes(config, args.config)
+    if args.command == "arx5-drag":
+        with ExitStack() as stack:
+            keyboard = stack.enter_context(TerminalKeyboard())
+            leaders = []
+            for lc in leader_configs:
+                leader = ARX5Leader(dict(lc, drag=True))
+                stack.callback(leader.close)
+                leaders.append(leader)
+            print("ARX drag only; UR is not connected. q/Escape: exit")
+            started = time.monotonic()
+            while args.duration <= 0 or time.monotonic() - started < args.duration:
+                if any(key in ("q", "\x1b") for key in keyboard.read()):
+                    return
+                for leader in leaders:
+                    leader.read()
+                time.sleep(1 / args.rate)
+        return
     with ExitStack() as stack:
         leaders = []
         keyboard = None
@@ -185,7 +203,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("diagnose", "observe", "gripper-status", "gripper-activate"):
         sub.add_parser(name)
-    for name in ("keyboard", "arx5", "policy"):
+    for name in ("keyboard", "arx5", "arx5-drag", "policy"):
         p = sub.add_parser(name)
         p.add_argument("--rate", type=float, default=20)
         p.add_argument("--latency", type=float, default=0.2)

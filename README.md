@@ -128,6 +128,28 @@ ur7e --config "$UR7E_SDK_DIR/configs/ur7e.yaml" arx5
 
 每个 UR 臂配置一个 `arx5` 条目。`model` / `interface` 对应 ARX 型号和 CAN 设备；`axes_rpy` 是 ARX 基座到 UR 基座的坐标轴旋转，单位为弧度；`position_scale` 控制平移比例；`gripper_width` 填主臂实际最大开度。`drag: true` 会开启 ARX 重力补偿、低阻尼拖动，不执行回零；结束时将主臂当前位置设置为保持目标并恢复原增益。
 
+先单独检查 ARX 拖动手感（沿用上面的 Conda 和 `PYTHONPATH` 设置）：
+
+```bash
+ur7e --config configs/ur7e.yaml arx5-drag
+```
+
+该命令只连接 ARX，不连接或移动 UR；启动即进入拖动模式，q/Escape/Ctrl-C 退出。退出后 X5 SDK 会进入阻尼状态，不保证悬停，请托住主臂。普通 `arx5` 模式使用同一套拖动设置，暂停 UR 跟随时仍可拖动主臂。
+
+在 `arx5` 条目中配置以下参数，默认与 ARX SDK `drag_mode.py` 一致：
+
+```yaml
+    drag: true
+    gravity_scale: 1.0          # 重力前馈倍率，0 < 值 <= 2
+    drag_kd_scale: 0.05         # 关节 kd = SDK default_kd * 此值
+    drag_gripper_kd: 0.05
+    gripper_open_readout: -3.4  # 夹爪全开电机读数；0 表示沿用模型值
+```
+
+程序在构造控制器前启用重力补偿和后台收发，清零当前位置命令的速度、附加力矩，再一次性设置关节/夹爪 `kp=0` 和低阻尼增益；拖动期间不持续发送位置命令，由 SDK 后台线程计算重力前馈。启动日志显示从控制器读回的重力向量和增益，设置未生效就退出。示例的自动回零未引入遥操作流程。
+
+如果仍然下坠，先核对模型、末端负载及安装方向；`gravity_vector` 可指定 ARX 基座系中的重力方向，单位 m/s²，默认沿用模型的 `[0, 0, -9.807]`，侧装或倒装必须据实际方向修改，不能用 `axes_rpy` 替代。模型匹配后，可小步调整 `gravity_scale`（例如下坠时从 1.0 调至 1.05，上浮时调至 0.95），每次重启生效。`drag_kd_scale` 只调运动阻尼，不能补偿重量。夹爪全开读数应按 ARX SDK 的 `calibrate.py` 标定；`-3.4` 是其拖动示例默认值，不保证适合所有批次。
+
 首次按空格后，UR 使用 `moveJ` 缓慢回到记录的关节姿势，夹爪不发送开度命令，ARX 不主动移动。UR 到位并静止 0.2 秒后，程序进入伺服会话，捕获两侧当前位姿作为锚点，显示 `Enabled`，开始相对笛卡尔遥操作。回位过程中按 Space/q/Escape 或 Ctrl-C 会停止回位并退出；任何错误均不会继续进入遥操作。之后按空格暂停 UR，可重新摆放主臂，再启用时只重新建立锚点，不重复回位。重新启动命令则会再次执行回位流程。
 
 每个 `arx5` 条目配置对应 UR 的回位参数：
