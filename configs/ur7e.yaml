@@ -1,0 +1,43 @@
+backend: ur
+frequency: 125
+obs_frequency: 20
+history: 512
+lookahead_time: 0.1
+gain: 300
+arms:
+  - ip: 192.168.1.10
+    commissioned: false
+    # Replace with measured TCP, total tool payload and center of gravity.
+    tcp: [0, 0, 0, 0, 0, 0]
+    payload_mass: 0
+    payload_cog: [0, 0, 0]
+    gripper:
+      port: 63352
+      open_raw: 0
+      closed_raw: 255
+      speed: 64
+      force: 20
+      timeout: 0.15
+    safety:
+      workspace_min: [0.15, -0.5, 0.1]
+      workspace_max: [0.8, 0.5, 0.8]
+      max_pos_speed: 0.1
+      max_rot_speed: 0.5
+      max_gripper_speed: 0.1
+      max_joint_speed: 1.0
+      joint_min: [-6.28, -6.28, -6.28, -6.28, -6.28, -6.28]
+      joint_max: [6.28, 6.28, 6.28, 6.28, 6.28, 6.28]
+      max_tracking_pos: 0.05
+      max_tracking_rot: 0.3
+      state_timeout: 0.5
+      command_timeout: 1.0
+      max_horizon: 2.0
+      max_cycle_lag: 0.1
+arx5:
+  - model: X5
+    interface: can0
+    drag: true
+    axes_rpy: [0, 0, 0]
+    position_scale: 1.0
+    gripper_width: 0.085
+    state_timeout: 0.25

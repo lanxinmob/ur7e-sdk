@@ -1,0 +1,5 @@
+backend: sim
+frequency: 125
+obs_frequency: 20
+arms:
+  - initial_pose: [0.4, 0, 0.3, 0, 3.141592653589793, 0]
