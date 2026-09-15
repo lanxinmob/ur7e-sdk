@@ -15,7 +15,7 @@ arms:
     gripper:
       port: 63352
       open_raw: 0
-      closed_raw: 255
+      closed_raw: 228
       speed: 64
       force: 20
       timeout: 0.15
