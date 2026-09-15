@@ -66,8 +66,13 @@ def _run(config, commands, history, ready, stop, failed, errors):
                 # Validate the entire multi-arm batch before replacing any trajectory.
                 for i, guard in enumerate(guards):
                     start, start_t = anchors[i], now
-                    for action, target_t in zip(actions[:, i], timestamps):
-                        guard.segment(start, action, target_t - start_t)
+                    for j, (action, target_t) in enumerate(
+                        zip(actions[:, i], timestamps)
+                    ):
+                        try:
+                            guard.segment(start, action, target_t - start_t)
+                        except SafetyError as exc:
+                            raise SafetyError(f"UR{i} waypoint {j}: {exc}") from exc
                         start, start_t = action, target_t
                 width_times = np.r_[now, timestamps]
                 widths = np.vstack([[a[6] for a in anchors], actions[:, :, 6]])

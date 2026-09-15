@@ -30,12 +30,23 @@ class SafetyLayer:
             raise SafetyError("Nonpositive segment duration")
         dp, dr = pose_distance(start[:6], end[:6])
         s = self.config
-        if (
-            dp > s["max_pos_speed"] * duration + 1e-9
-            or dr > s["max_rot_speed"] * duration + 1e-9
-            or abs(end[6] - start[6]) > s["max_gripper_speed"] * duration + 1e-9
+        violations = []
+        for name, delta, limit, unit in (
+            ("translation", dp, s["max_pos_speed"], "m"),
+            ("rotation", dr, s["max_rot_speed"], "rad"),
+            ("gripper", abs(end[6] - start[6]), s["max_gripper_speed"], "m"),
         ):
-            raise SafetyError("Waypoint deadline exceeds configured speed limits")
+            if delta > limit * duration + 1e-9:
+                violations.append(
+                    f"{name}: delta={delta:.6f} {unit}, "
+                    f"required={delta / duration:.4f} {unit}/s "
+                    f"> limit={limit:.4f} {unit}/s"
+                )
+        if violations:
+            raise SafetyError(
+                f"Waypoint deadline exceeds configured speed limits "
+                f"(available={duration:.4f}s): " + "; ".join(violations)
+            )
 
     def joint_target(self, joints):
         q = np.asarray(joints, dtype=float)
