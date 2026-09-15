@@ -23,6 +23,46 @@ def _warmup(env, steps=1):
             time.sleep(0.02)
 
 
+def _align_leaders(env, leaders, keyboard, args):
+    hold = env.action_from_obs(env.get_obs())
+
+    def keep_alive():
+        if any(key in ("q", "\x1b", " ") for key in keyboard.read()):
+            raise KeyboardInterrupt
+        env.get_obs()
+        for leader in leaders:
+            leader.read()
+        if env.exec_action(hold[None], [time.time() + args.latency]) == 0:
+            raise RuntimeError("UR hold deadline expired during ARX alignment")
+
+    print("Aligning ARX leaders; UR holds still. Space/q/Escape: cancel and exit.")
+    for leader in leaders:
+        keep_alive()
+        leader.hold()
+    # Check every IK target before any leader starts moving.
+    plans = []
+    for i, (leader, follower) in enumerate(zip(leaders, hold)):
+        keep_alive()
+        plan = leader.plan_alignment(follower)
+        plans.append(plan)
+        print(
+            f"ARX{i} target xyz/rpy: {np.round(plan['pose'], 4).tolist()}, "
+            f"width={plan['width']:.4f}m, duration={plan['duration']:.1f}s"
+        )
+    rate = min(args.rate, env.config["frequency"] / 2, 50)
+    for leader, plan in zip(leaders, plans):
+        leader.align(plan, keep_alive, rate=rate)
+    keep_alive()
+    for leader in leaders:
+        leader.enter_teleop()
+    # Establish paired anchors from measured states, not the IK targets.
+    target = env.action_from_obs(env.get_obs())
+    for leader, follower in zip(leaders, target):
+        leader.clutch(follower)
+    print("ARX alignment complete; dynamic master/slave anchors established.")
+    return target
+
+
 def run(args):
     config = load_config(
         args.config,
@@ -104,6 +144,9 @@ def run(args):
                 print("w/s x, a/d y, r/f z; i/k rx, j/l ry, u/o rz; [/] close/open")
                 teleop = KeyboardTeleop(target)
             else:
+                print(
+                    "First Space: move ARX slowly to the mapped UR pose, then enable following."
+                )
                 for lc in leader_configs:
                     leader = ARX5Leader(lc)
                     stack.callback(leader.close)
@@ -125,7 +168,9 @@ def run(args):
                     target = env.action_from_obs(obs)
                     if args.command == "keyboard":
                         teleop.target = target.copy()
-                    else:
+                    elif enabled and not all(leader.aligned for leader in leaders):
+                        target = _align_leaders(env, leaders, keyboard, args)
+                    elif enabled:
                         for leader, follower in zip(leaders, target):
                             leader.clutch(follower)
                     print("Enabled" if enabled else "Paused")
