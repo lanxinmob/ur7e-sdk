@@ -17,11 +17,30 @@ class ARX5Leader:
             "joint_controller", rc.joint_dof
         )
         cc.gravity_compensation = True
-        self.robot = arx.Arx5JointController(rc, cc, config.get("interface", "can0"))
-        gain = self.robot.get_gain()
-        self.original_gain = arx.Gain(
-            gain.kp().copy(), gain.kd().copy(), gain.gripper_kp, gain.gripper_kd
+        cc.background_send_recv = True
+        gravity_scale = float(config.get("gravity_scale", 1.0))
+        kd_scale = float(config.get("drag_kd_scale", 0.05))
+        gripper_kd = float(config.get("drag_gripper_kd", 0.05))
+        gravity = np.asarray(
+            config.get("gravity_vector", rc.gravity_vector), dtype=float
         )
+        if (
+            not np.isfinite([gravity_scale, kd_scale, gripper_kd]).all()
+            or not 0 < gravity_scale <= 2
+            or not 0 <= kd_scale <= 1
+            or gripper_kd < 0
+            or gravity.shape != (3,)
+            or not np.isfinite(gravity).all()
+            or not 9 <= np.linalg.norm(gravity) <= 10
+        ):
+            raise ValueError("Invalid ARX drag gravity/damping settings")
+        # Robot configs are copied by the native constructor; set these beforehand.
+        rc.gravity_vector = gravity * gravity_scale
+        open_readout = float(config.get("gripper_open_readout", -3.4))
+        if not np.isfinite(open_readout):
+            raise ValueError("Invalid ARX gripper_open_readout")
+        if open_readout != 0:
+            rc.gripper_open_readout = open_readout
         self.last_stamp = None
         self.last_update = time.monotonic()
         self.reference = None
@@ -30,13 +49,50 @@ class ARX5Leader:
         self.gripper_max = float(config.get("gripper_width", rc.gripper_width))
         if not np.isfinite(self.scale) or self.scale <= 0 or not self.gripper_max > 0:
             raise ValueError("Invalid ARX position scale/gripper width")
+        self.robot = arx.Arx5JointController(rc, cc, config.get("interface", "can0"))
+        gain = self.robot.get_gain()
+        self.original_gain = arx.Gain(
+            gain.kp().copy(), gain.kd().copy(), gain.gripper_kp, gain.gripper_kd
+        )
         if config.get("drag", True):
-            gain = self.robot.get_gain()
-            gain.kp()[:] = 0
-            gain.kd()[:] = cc.default_kd * 0.05
-            gain.gripper_kp = 0
-            gain.gripper_kd = 0.05
-            self.robot.set_gain(gain)
+            try:
+                # Clear any startup velocity/torque in the interpolator without homing.
+                state = self.robot.get_joint_state()
+                cmd = arx.JointState(rc.joint_dof)
+                cmd.pos()[:] = state.pos()
+                cmd.vel()[:] = 0
+                cmd.torque()[:] = 0
+                cmd.gripper_pos = state.gripper_pos
+                cmd.gripper_vel = 0
+                cmd.gripper_torque = 0
+                cmd.timestamp = self.robot.get_timestamp()
+                self.robot.set_joint_cmd(cmd)
+                gain = arx.Gain(
+                    np.zeros(rc.joint_dof), cc.default_kd * kd_scale, 0, gripper_kd
+                )
+                self.robot.set_gain(gain)
+                actual = self.robot.get_gain()
+                actual_cc = self.robot.get_controller_config()
+                actual_rc = self.robot.get_robot_config()
+                if (
+                    not actual_cc.gravity_compensation
+                    or not actual_cc.background_send_recv
+                    or not np.allclose(actual.kp(), 0)
+                    or not np.allclose(actual.kd(), gain.kd())
+                    or not np.isclose(actual.gripper_kp, 0)
+                    or not np.isclose(actual.gripper_kd, gripper_kd)
+                    or not np.allclose(actual_rc.gravity_vector, rc.gravity_vector)
+                ):
+                    raise RuntimeError("ARX drag settings did not take effect")
+                print(
+                    f"ARX drag: {config.get('model', 'X5')} {config.get('interface', 'can0')}, "
+                    f"gravity={np.round(actual_rc.gravity_vector, 4).tolist()}, "
+                    f"kp=0, kd={np.round(actual.kd(), 4).tolist()}, "
+                    f"gripper_open_readout={actual_rc.gripper_open_readout:.4f}"
+                )
+            except BaseException:
+                self.robot.set_to_damping()
+                raise
 
     def read(self):
         if self.robot.is_emergency():
