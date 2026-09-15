@@ -37,6 +37,16 @@ class SafetyLayer:
         ):
             raise SafetyError("Waypoint deadline exceeds configured speed limits")
 
+    def joint_target(self, joints):
+        q = np.asarray(joints, dtype=float)
+        if (
+            q.shape != (6,)
+            or not np.isfinite(q).all()
+            or np.any(q < self.config["joint_min"])
+            or np.any(q > self.config["joint_max"])
+        ):
+            raise SafetyError("Joint target outside configured limits")
+
     def state(self, state, target, now):
         s = self.config
         for key in (
