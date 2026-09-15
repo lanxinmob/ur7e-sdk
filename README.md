@@ -126,9 +126,46 @@ python -c 'import arx5_interface; print("ARX5 import OK")' && \
 ur7e --config "$UR7E_SDK_DIR/configs/ur7e.yaml" arx5
 ```
 
-每个 UR 臂配置一个 `arx5` 条目。`model` / `interface` 对应 ARX 型号和 CAN 设备；`axes_rpy` 是 ARX 基座到 UR 基座的坐标轴旋转，单位为弧度；`position_scale` 控制平移比例；`gripper_width` 填主臂实际最大开度。`drag: true` 会开启 ARX 重力补偿、低阻尼拖动，不执行回零；结束时将主臂当前位置设置为保持目标并恢复原增益。
+每个 UR 臂配置一个 `arx5` 条目。`model` / `interface` 对应 ARX 型号和 CAN 设备，`gripper_width` 填主臂实际最大开度。ARX5 在连接后等待第一次空格，此时不要把它当作已经启用的遥操作主臂。
 
-先调整主臂姿势，再按空格捕获两侧当前位姿并启用映射。再次按空格暂停 UR，可重新摆放主臂，再启用时重新对齐。平移使用相对位移，旋转将 ARX 的 xyz RPY 转为 SO(3) 相对旋转再映射到 UR 旋转向量；夹爪使用归一化绝对开度，因此启用前应对齐开度。主臂运动过快、反馈停止更新或进入 emergency 状态时退出并停止 UR。
+**第一次按空格：**
+
+1. 读取 UR 当前 TCP 位姿和夹爪开度，让 UR 保持该状态。
+2. 按下述坐标映射计算 ARX5 的目标位姿和开度，用 ARX5 SDK 的 IK 求解目标关节角。双臂模式先检查所有目标的可达性，再依次移动主臂；任一目标不可达就退出。
+3. ARX5 切换位置控制增益，主动低速移到目标，UR 不跟随这段对齐运动。请移开手并清空主臂运动空间。对齐采用关节空间五次插值，起止速度、加速度为零，末端路径不保证是直线，也不做碰撞规划。
+4. 实测位置、旋转、开度达到误差阈值并保持 0.2 秒后，`drag: true` 开启重力补偿低阻尼拖动。读取两侧实测状态，建立动态 master/slave 锚点，显示 `Enabled`，进入笛卡尔遥操作。
+
+**之后按空格：**暂停 UR 跟随，重新摆放主臂，再按空格捕获新的实测锚点并恢复跟随，不重复主动对齐运动。对齐过程中按空格、q、Esc 或 Ctrl-C 会取消并退出。对齐超时、跟踪误差过大、主臂反馈过期或 emergency 状态也会退出并停止 UR。
+
+在 `arx5` 条目中设置映射和对齐参数（米、弧度、秒）：
+
+```yaml
+    axes_rpy: [0, 0, 0]
+    base_translation: [0, 0, 0]
+    tool_rpy: [0, 0, 0]
+    position_scale: 1.0
+    alignment:
+      max_joint_speed: 0.15        # ARX5 对齐关节速度，rad/s
+      max_gripper_speed: 0.01      # ARX5 对齐开度速度，m/s
+      min_duration: 2.0
+      timeout: 45.0
+      position_tolerance: 0.005    # 实测末端位置误差，m
+      rotation_tolerance: 0.05     # 实测末端旋转误差，rad
+      gripper_tolerance: 0.003
+      max_joint_tracking_error: 0.15
+```
+
+设 `R = Rotation.from_euler("xyz", axes_rpy)`、`T = Rotation.from_euler("xyz", tool_rpy)`，对齐采用以下正向映射的逆变换：
+
+```text
+p_ur = base_translation + position_scale * R * p_arx
+R_ur = R * R_arx * T
+width_arx = width_ur / 0.085 * gripper_width
+```
+
+`base_translation` 是映射后的 ARX 原点在 UR 基座系的位置，`axes_rpy` 指定坐标轴旋转，`tool_rpy` 指定两侧工具姿态约定的差异。默认平移为零、旋转为单位旋转，表示数值坐标直接对应，不代表完成了安装外参标定。UR 和 ARX5 的工作空间不同，默认映射可能不可达；请调整映射或 UR 初始姿势，不要通过放宽速度限制处理 IK 错误。`position_scale` 同时影响初次逆映射和后续平移比例。
+
+遥操作仍采用原来的相对笛卡尔映射：UR 目标等于 slave 锚点加上映射后的 master 位姿变化，旋转在 SO(3) 上计算。夹爪改为锚点开度加归一化开度变化，避免对齐残差或暂停重启造成瞬间开合。SDK 退出时给 ARX 设置当前关节保持目标并恢复原增益；最终电机状态由 ARX5 SDK 的退出策略决定。
 
 ## Python 接口
 
