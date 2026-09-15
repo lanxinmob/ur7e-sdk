@@ -23,6 +23,52 @@ def _warmup(env, steps=1):
             time.sleep(0.02)
 
 
+def _match_grippers(env, leaders, keyboard, args, target):
+    target = target.copy()
+    goal = np.array(
+        [
+            np.clip(leader.read()[1] / leader.gripper_max, 0, 1) * 0.085
+            for leader in leaders
+        ]
+    )
+    speeds = np.array(
+        [arm["safety"]["max_gripper_speed"] * 0.5 for arm in env.config["arms"]]
+    )
+    period = 1 / min(args.rate, 50)
+    timeout = max(
+        10.0, float(np.max(np.abs(goal - target[:, 6]) / speeds)) + args.latency + 5
+    )
+    started = previous = time.monotonic()
+    settled = None
+    print(
+        f"Matching UR grippers to ARX: {np.round(goal, 4).tolist()} m; Space/q/Escape: cancel"
+    )
+    while True:
+        if any(key in (" ", "q", "\x1b") for key in keyboard.read()):
+            raise KeyboardInterrupt
+        for leader in leaders:
+            leader.read()
+        measured = env.action_from_obs(env.get_obs())
+        now = time.monotonic()
+        if now - started > timeout:
+            raise TimeoutError(
+                "UR grippers did not reach the ARX opening; teleoperation not enabled"
+            )
+        # Bound each increment even after a delayed producer cycle.
+        step = speeds * min(max(now - previous, 0), period)
+        target[:, 6] += np.clip(goal - target[:, 6], -step, step)
+        previous = now
+        if env.exec_action(target[None], [time.time() + args.latency]) == 0:
+            raise RuntimeError("UR gripper synchronization deadline expired")
+        arrived = np.allclose(target[:, 6], goal, atol=1e-6) and np.all(
+            np.abs(measured[:, 6] - goal) <= 0.003
+        )
+        settled = (now if settled is None else settled) if arrived else None
+        if settled is not None and now - settled >= 0.2:
+            return measured
+        time.sleep(max(0, period - (time.monotonic() - now)))
+
+
 def run(args):
     config = load_config(
         args.config,
@@ -144,6 +190,7 @@ def run(args):
         obs = _warmup(env, args.obs_steps)
         target = env.action_from_obs(obs)
         if leaders:
+            target = _match_grippers(env, leaders, keyboard, args, target)
             for leader, follower in zip(leaders, target):
                 leader.clutch(follower)
             print("Enabled")
