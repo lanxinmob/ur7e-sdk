@@ -218,7 +218,8 @@ def run(args):
                     target = env.action_from_obs(obs)
                     if args.command == "keyboard":
                         teleop.target = target.copy()
-                    else:
+                    elif enabled:
+                        target = _match_grippers(env, leaders, keyboard, args, target)
                         for leader, follower in zip(leaders, target):
                             leader.clutch(follower)
                     print("Enabled" if enabled else "Paused")

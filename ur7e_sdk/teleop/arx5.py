@@ -129,7 +129,7 @@ class ARX5Leader:
         return pose, float(state.gripper_pos)
 
     def clutch(self, follower):
-        self.reference, self.reference_width = self.read()
+        self.reference = self.read()[0]
         self.follower = np.array(follower, copy=True)
 
     def action(self):
@@ -148,12 +148,7 @@ class ARX5Leader:
             * self.axes.inv()
             * Rotation.from_rotvec(self.follower[3:6])
         ).as_rotvec()
-        result[6] = np.clip(
-            self.follower[6]
-            + (width - self.reference_width) / self.gripper_max * 0.085,
-            0,
-            0.085,
-        )
+        result[6] = np.clip(width / self.gripper_max, 0, 1) * 0.085
         return result
 
     def close(self):
