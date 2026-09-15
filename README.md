@@ -148,6 +148,18 @@ ur7e --config configs/ur7e.yaml arx5-drag
 
 程序在构造控制器前启用重力补偿和后台收发，清零当前位置命令的速度、附加力矩，再一次性设置关节/夹爪 `kp=0` 和低阻尼增益；拖动期间不持续发送位置命令，由 SDK 后台线程计算重力前馈。启动日志显示从控制器读回的重力向量和增益，设置未生效就退出。示例的自动回零未引入遥操作流程。
 
+如果 SDK 示例能正常拖动，而遥操作出现抬头或下坠，先比较实际加载的模型。不同 Conda 环境、`PYTHONPATH` 和安装包可能使同名 `X5_umi` 加载不同 URDF；仅比较 `gravity_scale` 和增益不足以确认重力力矩一致。启动日志中的 `ARX binding`、`ARX URDF` 分别给出实际绑定和模型路径。可在对应条目显式指定 URDF，路径相对于主配置文件目录：
+
+```yaml
+  - model: X5_umi
+    urdf_path: arx5/X5_umi_calibrated.urdf
+    interface: can0
+    drag: true
+    gravity_scale: 1.0
+```
+
+这是模型选择示例，其余参数沿用前面的配置。提供的 `configs/arx5/X5_umi_calibrated.urdf` 将 `link6` 质量设为 0.802 kg，其他参数保持 ARX SDK 模型值；它适用于该负载配置，不是所有 X5/X5_umi 的通用标定。不要把它用于 `model: X5`，程序会检查 URDF 型号是否匹配。模型来自 [ARX5 SDK](https://github.com/lanxinmob/arx5-sdk)，许可证见 [configs/arx5/LICENSE](configs/arx5/LICENSE)。对自己的机械臂，应显式选用已验证的对应 URDF，而不是通过整体倍率掩盖某个连杆的质量误差。
+
 如果仍然下坠，先核对模型、末端负载及安装方向；`gravity_vector` 可指定 ARX 基座系中的重力方向，单位 m/s²，默认沿用模型的 `[0, 0, -9.807]`，侧装或倒装必须据实际方向修改，不能用 `axes_rpy` 替代。模型匹配后，可小步调整 `gravity_scale`（例如下坠时从 1.0 调至 1.05，上浮时调至 0.95），每次重启生效。`drag_kd_scale` 只调运动阻尼，不能补偿重量。夹爪全开读数应按 ARX SDK 的 `calibrate.py` 标定；`-3.4` 是其拖动示例默认值，不保证适合所有批次。
 
 首次按空格后，UR 使用 `moveJ` 缓慢回到记录的关节姿势，夹爪不发送开度命令，ARX 不主动移动。UR 到位并静止 0.2 秒后，程序进入伺服会话，捕获两侧当前位姿作为锚点，显示 `Enabled`，开始相对笛卡尔遥操作。回位过程中按 Space/q/Escape 或 Ctrl-C 会停止回位并退出；任何错误均不会继续进入遥操作。之后按空格暂停 UR，可重新摆放主臂，再启用时只重新建立锚点，不重复回位。重新启动命令则会再次执行回位流程。
