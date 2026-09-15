@@ -12,6 +12,7 @@ class URRobot:
 
         self.control = self.receive = self.gripper = None
         self.config = config
+        self.state_timeout = arm["safety"]["state_timeout"]
         self.last_robot_time = None
         self.received_at = time.monotonic()
         try:
@@ -27,6 +28,15 @@ class URRobot:
             raise
 
     def start(self):
+        # TCP changes must appear in feedback before choosing the initial hold pose.
+        stamp = self.receive.getTimestamp()
+        deadline = time.monotonic() + self.state_timeout
+        while self.receive.getTimestamp() <= stamp:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("No fresh RTDE feedback after TCP/payload setup")
+            time.sleep(0.002)
+        if not self.control.isPoseWithinSafetyLimits(self.receive.getActualTCPPose()):
+            raise RuntimeError("Initial UR pose/IK safety check failed")
         if not self.control.setWatchdog(2.0):
             raise RuntimeError("RTDE watchdog setup failed")
 
@@ -48,6 +58,7 @@ class URRobot:
             safe=(
                 r.isConnected()
                 and self.control.isConnected()
+                and self.control.isProgramRunning()
                 and r.getSafetyMode() in (1, 2)
                 and r.getRobotMode() == 7
             ),
@@ -55,8 +66,6 @@ class URRobot:
 
     def servo(self, action):
         c = self.config
-        if not self.control.isPoseWithinSafetyLimits(action[:6].tolist()):
-            raise RuntimeError("UR pose/IK safety check failed")
         if not self.control.kickWatchdog():
             raise RuntimeError("UR watchdog kick failed")
         if not self.control.servoL(
