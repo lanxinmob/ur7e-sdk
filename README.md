@@ -4,10 +4,11 @@ UR7e + 工具端 Robotiq 2F-85 的 Python SDK。支持单臂、双臂、键盘�
 
 ## 安装与模拟运行
 
-使用 Conda 管理环境。`environment.yml` 固定 Python 3.9，与本机现有 ARX5 二进制绑定一致，并安装 SDK 和 UR 硬件依赖。ARX5 模式的 Python 版本必须与 `arx5_interface` 编译版本一致。
+使用 Conda 管理环境。`environment.yml` 默认使用 Python 3.9，并安装 SDK 和 UR 硬件依赖。ARX5 模式的 Python 版本必须与 `arx5_interface` 编译版本一致；使用其他版本的绑定时，相应调整环境中的 Python 版本。
+
+克隆或下载仓库后，在仓库根目录执行：
 
 ```bash
-cd ~/projects/ur7e_sdk
 conda env create -f environment.yml
 conda activate ur7e_sdk
 ur7e observe
@@ -80,7 +81,6 @@ arms:
 ### 5. 在电脑检查并开始控制
 
 ```bash
-cd ~/projects/ur7e_sdk
 conda activate ur7e_sdk
 ur7e --config configs/ur7e.yaml diagnose
 ur7e --config configs/ur7e.yaml gripper-status
@@ -115,13 +115,15 @@ ur7e --config configs/ur7e.yaml keyboard
 | u / o | 绕 z 正 / 负，0.01 rad |
 | ] / [ | 打开 / 闭合，2 mm |
 
-ARX5 模式使用本机 `~/projects/arx5-sdk`，先按照其说明编译 Python 绑定、配置 SocketCAN 和模型资源。在兼容的 Python 环境中安装本项目；如果绑定依赖相对 URDF 路径，按 ARX5 SDK 要求设置工作目录并传入本项目配置的绝对路径。
+ARX5 模式需要另行安装 [ARX5 SDK](https://github.com/lanxinmob/arx5-sdk)，按照其说明编译 Python 绑定、配置 SocketCAN 和模型资源。以下命令在本仓库根目录执行，将 `ARX5_SDK_DIR` 替换为你的 ARX5 SDK 目录。如果绑定依赖相对 URDF 路径，按 ARX5 SDK 要求设置工作目录，并用 `UR7E_SDK_DIR` 指定本项目配置的绝对路径。
 
 ```bash
 conda activate ur7e_sdk
-export PYTHONPATH="$HOME/projects/arx5-sdk/python:${PYTHONPATH:-}"
+export UR7E_SDK_DIR="$PWD"
+export ARX5_SDK_DIR=/path/to/arx5-sdk
+export PYTHONPATH="$ARX5_SDK_DIR/python:${PYTHONPATH:-}"
 python -c 'import arx5_interface'
-ur7e --config "$HOME/projects/ur7e_sdk/configs/ur7e.yaml" arx5
+ur7e --config "$UR7E_SDK_DIR/configs/ur7e.yaml" arx5
 ```
 
 每个 UR 臂配置一个 `arx5` 条目。`model` / `interface` 对应 ARX 型号和 CAN 设备；`axes_rpy` 是 ARX 基座到 UR 基座的坐标轴旋转，单位为弧度；`position_scale` 控制平移比例；`gripper_width` 填主臂实际最大开度。`drag: true` 会开启 ARX 重力补偿、低阻尼拖动，不执行回零；结束时将主臂当前位置设置为保持目标并恢复原增益。
@@ -202,7 +204,7 @@ ur7e --config configs/sim.yaml policy --factory my_policy:create_policy \
 可选 OpenCV 相机：
 
 ```bash
-python -m pip install --proxy http://127.0.0.1:7897 -e '.[camera]'
+python -m pip install -e '.[camera]'
 ```
 
 在 YAML 顶层加入：
@@ -246,4 +248,4 @@ runtime/ 加载 configs/ 并管理上述生命周期
 - [UMI](https://github.com/real-stanford/universal_manipulation_interface)：`umi/real_world/rtde_interpolation_controller.py`、`umi/common/pose_trajectory_interpolator.py`、`umi/real_world/bimanual_umi_env.py` 的独立进程、时间戳动作和观测对齐设计。当前参考仓库的环境文件名为 `bimanual_umi_env`。
 - [Gello](https://github.com/wuphilipp/gello_software)：`gello/robots/ur.py` 的 `URRobot` 与 `robotiq_gripper.py` 的 URCap socket 协议。此处针对 2F-85、米制宽度、有界等待和线程隔离重新实现。
 - [ur-rtde](https://sdurobotics.gitlab.io/ur_rtde/)：RTDE 控制/接收接口、`servoL` 与 watchdog。
-- `https://github.com/lanxinmob/arx5-sdk/python/arx5_interface.pyi`、`python/examples/drag_mode.py`：ARX5 Python API、RPY 位姿和重力补偿拖动配置。
+- [ARX5 SDK](https://github.com/lanxinmob/arx5-sdk)：`python/arx5_interface.pyi`、`python/examples/drag_mode.py` 的 Python API、RPY 位姿和重力补偿拖动配置。
