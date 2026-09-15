@@ -1,0 +1,9 @@
+name: ur7e_sdk
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+      - -e .[hardware]

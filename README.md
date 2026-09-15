@@ -4,15 +4,14 @@ UR7e + 工具端 Robotiq 2F-85 的 Python SDK。支持单臂、双臂、键盘�
 
 ## 安装与模拟运行
 
-推荐 Linux、Python 3.10 或 3.11，最低支持 Python 3.9。ARX5 模式必须使用其 `arx5_interface` 编译时对应的 Python 环境；本机现有绑定是 CPython 3.9，可使用已有 `arx5` Conda 环境并在该环境安装本项目依赖。
+使用 Conda 管理环境。`environment.yml` 固定 Python 3.9，与本机现有 ARX5 二进制绑定一致，并安装 SDK 和 UR 硬件依赖。ARX5 模式的 Python 版本必须与 `arx5_interface` 编译版本一致。
 
 ```bash
 cd ~/projects/ur7e_sdk
-python3 -m venv .venv
-source .venv/bin/activate
 export http_proxy=http://127.0.0.1:7897
 export https_proxy=http://127.0.0.1:7897
-python -m pip install --proxy http://127.0.0.1:7897 -e .
+conda env create -f environment.yml
+conda activate ur7e_sdk
 ur7e observe
 ur7e keyboard
 ur7e policy --duration 5
@@ -20,6 +19,8 @@ ur7e --config configs/bimanual_sim.yaml policy --duration 5
 ```
 
 默认 `configs/sim.yaml` 不连接机器人。`policy` 默认运行保持当前位姿的 `HoldPolicy`，用于检查完整调用链。模拟后端直接跟随目标，不模拟动力学、碰撞或接触。所有 CLI 命令在仓库根目录运行；其他目录使用 `--config` 的绝对路径。
+
+以后使用时运行 `conda activate ur7e_sdk`。修改环境定义后，在仓库根目录运行 `conda env update -f environment.yml`。
 
 ## 连接 UR7e 与 2F-85
 
@@ -61,8 +62,7 @@ ur7e --config configs/ur7e.yaml keyboard
 ARX5 模式使用本机 `~/projects/arx5-sdk`，先按照其说明编译 Python 绑定、配置 SocketCAN 和模型资源。在兼容的 Python 环境中安装本项目；如果绑定依赖相对 URDF 路径，按 ARX5 SDK 要求设置工作目录并传入本项目配置的绝对路径。
 
 ```bash
-conda activate arx5
-python -m pip install --proxy http://127.0.0.1:7897 -e '.[hardware]'
+conda activate ur7e_sdk
 export PYTHONPATH="$HOME/projects/arx5-sdk/python:${PYTHONPATH:-}"
 python -c 'import arx5_interface'
 ur7e --config "$HOME/projects/ur7e_sdk/configs/ur7e.yaml" arx5
