@@ -165,6 +165,17 @@ width_arx = width_ur / 0.085 * gripper_width
 
 `base_translation` 是映射后的 ARX 原点在 UR 基座系的位置，`axes_rpy` 指定坐标轴旋转，`tool_rpy` 指定两侧工具姿态约定的差异。默认平移为零、旋转为单位旋转，表示数值坐标直接对应，不代表完成了安装外参标定。UR 和 ARX5 的工作空间不同，默认映射可能不可达；请调整映射或 UR 初始姿势，不要通过放宽速度限制处理 IK 错误。`position_scale` 同时影响初次逆映射和后续平移比例。
 
+对齐时报关节限位错误：`IK status 0` 仅表示数值求解收敛，不保证关节角在机械限位内。程序会再调用 ARX SDK 的多次 IK 搜索；仍失败则退出，不发送该解。报错中的 `J1` 至 `J6` 按关节顺序编号，角度单位为 rad。不要提高 UR 速度上限或修改 ARX 机械限位来绕过此错误。
+
+配置起始姿势对应关系：先选定一个适合操作、远离关节极限的 ARX 参考姿势，读取其末端位置 `p_arx_ref` 和姿态 `R_arx_ref`；再读取希望与它对应的 UR 起始 TCP 位置 `p_ur_ref` 和姿态 `R_ur_ref`。选定 `axes_rpy` 和 `position_scale` 后，计算：
+
+```python
+base_translation = p_ur_ref - position_scale * R.apply(p_arx_ref)
+tool_rpy = (R_arx_ref.inv() * R.inv() * R_ur_ref).as_euler("xyz")
+```
+
+其中 `R` 为上述轴映射旋转，ARX 反馈的姿态用 `Rotation.from_euler("xyz", ...)` 转换，UR 反馈用 `Rotation.from_rotvec(...)` 转换。将结果填入该臂的配置再启动。这样首次对齐会让 ARX 到达选定的参考姿势；之后仍使用动态锚点进行相对遥操作。这是人为选择的遥操作对应关系，不是仅用一对位姿测出了机械安装外参。关节限位和末端可达性检查不包含碰撞检测，首次对齐前应检查 ARX 从当前位置到参考姿势的运动空间。
+
 遥操作仍采用原来的相对笛卡尔映射：UR 目标等于 slave 锚点加上映射后的 master 位姿变化，旋转在 SO(3) 上计算。夹爪改为锚点开度加归一化开度变化，避免对齐残差或暂停重启造成瞬间开合。SDK 退出时给 ARX 设置当前关节保持目标并恢复原增益；最终电机状态由 ARX5 SDK 的退出策略决定。
 
 ## Python 接口

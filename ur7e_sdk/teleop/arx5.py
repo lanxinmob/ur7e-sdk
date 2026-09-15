@@ -161,16 +161,38 @@ class ARX5Leader:
         status, joints = self.solver.inverse_kinematics(target, start)
         joints = np.asarray(joints, dtype=float)
         rc, settings = self.robot_config, self.alignment
-        if (
-            status < 0
-            or joints.shape != start.shape
-            or not np.isfinite(joints).all()
-            or np.any(joints < rc.joint_pos_min)
-            or np.any(joints > rc.joint_pos_max)
-        ):
-            raise RuntimeError(
-                f"ARX alignment target is unreachable (IK status {status}): {target.tolist()}"
+
+        def invalid_solution(status, joints):
+            if joints.shape != start.shape or not np.isfinite(joints).all():
+                return "IK returned invalid joint values"
+            outside = np.flatnonzero(
+                (joints < rc.joint_pos_min) | (joints > rc.joint_pos_max)
             )
+            if outside.size:
+                return "joint limits exceeded: " + "; ".join(
+                    f"J{i + 1}={joints[i]:.3f} outside "
+                    f"[{rc.joint_pos_min[i]:.3f}, {rc.joint_pos_max[i]:.3f}] rad"
+                    for i in outside
+                )
+            if status < 0:
+                return f"IK failed (status {status})"
+            return None
+
+        reason = invalid_solution(status, joints)
+        if reason:
+            # LMA convergence alone does not enforce the physical joint limits.
+            retry_status, retry_joints = self.solver.multi_trial_ik(target, start, 20)
+            retry_joints = np.asarray(retry_joints, dtype=float)
+            retry_reason = invalid_solution(retry_status, retry_joints)
+            if retry_reason is None:
+                joints = retry_joints
+            else:
+                raise RuntimeError(
+                    f"ARX alignment: {reason}; alternate IK: {retry_reason}. "
+                    f"Mapped target (xyz m, xyz RPY rad): {target.tolist()}. "
+                    "Calibrate arx5 base_translation/axes_rpy/tool_rpy or change "
+                    "the UR starting pose; do not increase physical joint limits."
+                )
         actual = np.asarray(self.solver.forward_kinematics(joints))
         if actual.shape != (6,) or not np.isfinite(actual).all():
             raise RuntimeError("ARX alignment FK returned an invalid pose")
