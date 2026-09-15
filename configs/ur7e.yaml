@@ -7,10 +7,11 @@ gain: 300
 arms:
   - ip: 192.168.1.10
     commissioned: false
-    # Replace with measured TCP, total tool payload and center of gravity.
-    tcp: [0, 0, 0, 0, 0, 0]
-    payload_mass: 0
-    payload_cog: [0, 0, 0]
+    # Robotiq manual 5.2.3: standard 2F-85 with coupling, no extra tool or object.
+    # Confirm the actual assembly before setting commissioned: true.
+    tcp: [0, 0, 0.174, 0, 0, 0]
+    payload_mass: 0.921
+    payload_cog: [0, 0, 0.060]
     gripper:
       port: 63352
       open_raw: 0

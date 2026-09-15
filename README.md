@@ -8,8 +8,6 @@ UR7e + 工具端 Robotiq 2F-85 的 Python SDK。支持单臂、双臂、键盘�
 
 ```bash
 cd ~/projects/ur7e_sdk
-export http_proxy=http://127.0.0.1:7897
-export https_proxy=http://127.0.0.1:7897
 conda env create -f environment.yml
 conda activate ur7e_sdk
 ur7e observe
@@ -22,28 +20,86 @@ ur7e --config configs/bimanual_sim.yaml policy --duration 5
 
 以后使用时运行 `conda activate ur7e_sdk`。修改环境定义后，在仓库根目录运行 `conda env update -f environment.yml`。
 
-## 连接 UR7e 与 2F-85
+## 硬件设置：UR7e + 工具端 2F-85
+
+以下菜单按 **PolyScope 5.x 英文界面**书写。先在示教器的 **Local Control** 模式完成设置，最后再切 Remote Control。配置文件统一是 `configs/ur7e.yaml`，第一台机器人对应 `arms[0]`。
+
+### 1. 设置机器人 IP
+
+1. 用网线连接电脑和 UR 控制箱。
+2. 示教器右上角 `☰ > Settings > System > Network`，读取或设置机器人 IP。例如机器人设为 `192.168.1.10`，子网掩码 `255.255.255.0`；电脑对应有线网卡设为 `192.168.1.20/24`，两者不能同 IP。
+3. 把机器人 IP 填入 `configs/ur7e.yaml` 的 `arms[0].ip`。工具端 2F-85 **没有需要单独配置的 IP 或 Web 页面**，SDK 访问同一机器人 IP 的 `63352` 端口。
+4. 在电脑运行 `ping -c 3 192.168.1.10`，应收到回复。这里的地址是配置示例，使用你实际设置的 IP。
+
+### 2. 安装并设置 Robotiq URCap
+
+1. 从 [Robotiq 支持页](https://robotiq.com/support/2f85-2f140-adaptive-robot-gripper) 选择 **Universal Robots > 2F-85 / 2F-140 > Software > Gripper Software**，下载与当前 PolyScope 兼容的 URCap 包。解压，将 `Robotiq_Grippers-版本号.urcap` 放入 U 盘并插到示教器。
+2. 打开 `☰ > Settings > System > URCaps`，点击 `+`，选中该 `.urcap` 文件，点击 **Restart**。重启后应能看到 Gripper 安装页面；已经安装兼容版本可跳过这一步。
+3. 打开 **`Installation > URCaps > Gripper > Dashboard`**，勾选 **`Gripper cable is connected to the wrist`**。这一步对应当前夹爪插在 UR7e 工具端的接线。
+4. 打开 **`Installation > General > Tool I/O`**，在 **`I/O Interface Control > Controlled by`** 中选择 **`Robotiq_Grippers`**。工具供电和 RS485 交由这个 URCap 管理，核对工具电压为 **24 V**；不要同时交给其他 URCap 或自己的串口程序控制。
+5. 回到 **`Installation > URCaps > Gripper > Dashboard`**，点击 **Scan**。看到夹爪图标后，清空手指之间的空间，点击 **Activate / Reactivate**；激活会产生夹爪运动。
+6. 在同一页面勾选 **Show Gripper Toolbar**。按官方快速指南，可用 **E-Open / E-Close** 低速检查开合，再从顶部 **UR+** 工具栏检查夹爪控制。先确保示教器能正常开合夹爪，再运行 SDK。
+7. **保存 Installation 文件**，后续加载同一个安装文件；否则重启后可能丢失 wrist 选项或工具 I/O 控制权。
+
+工具端通信的核对值为 **115200 baud、8 data bits、1 stop bit、no parity**，通常由上述 URCap 设置，无需手填。若 `Controlled by` 下没有 `Robotiq_Grippers`，先检查 URCap 是否安装成功、是否重启，以及 wrist 复选框是否勾选；不要仅手动设 24 V 就继续运行。
+
+### 3. 设置负载与 TCP
+
+以下数值来自 [Robotiq UR 手册 §5.2.3](https://blog.robotiq.com/hubfs/support-files/2F-85_2F-140_UR_PDF_2026-03-17.pdf)，适用于其表中的 **标准 2F-85 + coupling，无腕部相机、力传感器、额外转接件或自制指尖，且未夹持物体**。如果实际安装不同，需要改成对应组件组合或标定值；不要使用 UMI 的 `1.81 kg` 和 `(2,-6,37) mm`。
+
+1. 示教器打开 **`Installation > General > Payload`**，添加或选择当前工具负载，设置为当前使用的负载：
+   - **Mass：`0.921 kg`**。
+   - **Center of Gravity：CX = `0 mm`，CY = `0 mm`，CZ = `60 mm`**，相对工具法兰。
+2. 打开 **`Installation > General > TCP`**，新建 `robotiq_2f85` TCP 并设为当前 TCP：
+   - **X = `0 mm`，Y = `0 mm`，Z = `174 mm`**。
+   - 本 SDK 示例让 TCP 坐标轴与法兰坐标轴平行，**RX = RY = RZ = `0`**。
+   - 此设置用于示教器手动摆位时显示正确的工具位置。SDK 启动后会再次按 YAML 自动设置 TCP 和负载，因此 **只改示教器、不改 YAML 会被覆盖**。
+3. 保存 Installation。核对 `configs/ur7e.yaml` 中已预填的对应参数：
+
+```yaml
+arms:
+  - ip: 192.168.1.10
+    commissioned: false
+    tcp: [0, 0, 0.174, 0, 0, 0]
+    payload_mass: 0.921
+    payload_cog: [0, 0, 0.060]
+```
+
+这是配置摘录，保留原文件中的 `gripper`、`safety` 等字段。示教器的长度单位为 **mm**，YAML 为 **m**。更换指尖或转接件后，可在 TCP 页面用 **Measure** 向导标定新的 TCP，并同步回填 YAML；负载应包含所有末端附件，抓取物体后还需计入物体质量和质心。
+
+### 4. 上电、摆位并切换远程控制
+
+1. 确认急停已释放、现场允许启动。在示教器底部机器人状态/初始化页面点击 **ON**，再点击 **START** 松闸，等待机器人进入正常运行状态。
+2. 在 Local Control 下，用 **Move** 页面或 Freedrive 将夹爪摆到空旷、可操作的位置。将 Move 页面的参考坐标系选为 **Base**，检查当前 TCP 位置位于配置的 `arms[0].safety.workspace_min / workspace_max` 内；默认范围是 `x=0.15..0.8 m`、`y=-0.5..0.5 m`、`z=0.1..0.8 m`。根据真实工作台设置范围，不要为了消除报错而无限扩大。
+3. 打开 **`☰ > Settings > System > Remote Control`**，点击 **Enable**。
+4. 再从右上角的控制模式菜单将 **Local Control 切换为 Remote Control**。只按 Enable 并没有真正切换到远程。
+5. 若系统的 **`Settings > Security > Services`** 页面限制了接口，允许来自电脑的 **RTDE（30004）** 和 **Secondary Client Interface（30002）**。夹爪另需 **63352** 可达。
+
+本 SDK 由 `ur-rtde` 上传控制脚本，**不需要额外安装 External Control URCap，也不需要在示教器点 Play 运行另一份运动程序**。此时停止其他控制客户端；Robotiq URCap 保持已安装并配置好的状态。
+
+### 5. 在电脑检查并开始控制
 
 ```bash
-python -m pip install --proxy http://127.0.0.1:7897 -e '.[hardware]'
+cd ~/projects/ur7e_sdk
+conda activate ur7e_sdk
 ur7e --config configs/ur7e.yaml diagnose
 ur7e --config configs/ur7e.yaml gripper-status
 ```
 
-1. 电脑与 UR 控制箱处于可直连的网络。修改 `configs/ur7e.yaml` 的 `ip`。`7897` 只用于依赖下载，RTDE 与夹爪通信直接访问机器人，不走 HTTP 代理。
-2. 在示教器完成上电、松闸和远程控制设置；允许本机访问 RTDE `30004` 及 ur-rtde 上传脚本所用的 `30002`。确保没有另一个程序同时控制机器人。SDK 不自动松闸、不解除保护停止、不自动回零。
-3. 按 Robotiq 对应接线和 URCap 手册配置工具端 **24 V**、工具通信和夹爪设备。必须有提供 `GET/SET` ASCII 协议的 Robotiq URCap socket 服务，默认机器人 IP 的 **63352**。工具端 RS485 接线本身不会创建这个网络服务；若端口不通，先检查 URCap、安装配置及服务状态。本 SDK 不实现裸 RS485/Modbus 转发。
-4. `gripper-status` 应返回 `STA=3`、`FLT=0`。需要激活时运行下面的显式命令。激活可能使夹爪运动，先清空夹持空间；SDK 不自动执行全行程校准。
-5. 填写实测 `tcp`、工具总质量 `payload_mass`、质心 `payload_cog`，根据实际工作台修改每臂 `safety`。TCP 平移单位为米、旋转为旋转向量；质心在工具法兰坐标系下以米表示。配置中的零值是占位值，不能直接当作 2F-85 的参数使用。
-6. 核实配置后设置该臂 `commissioned: true`，从低速、空载开始运行。启动时实际 TCP 必须位于配置工作空间内，否则停止。`diagnose` 是被动 RTDE 读取；`observe` 会启动完整伺服会话、设置 TCP/负载并保持当前位置。
+- `diagnose` 应读出实际关节和 TCP；上电松闸后 `robot_mode` 应为 `7`，`safety_mode` 为 `1`（Normal）或 `2`（Reduced）。这是被动读取，不会开始伺服。
+- `gripper-status` 应返回 **`STA=3`、`FLT=0`**；`POS` 随开合变化。它验证的是机器人上 **63352 的 Robotiq ASCII socket 服务**，不是裸 RS485。
+- 若 `STA` 尚未激活，可清空夹持空间后运行 `ur7e --config configs/ur7e.yaml gripper-activate`。
+- 若连接 63352 被拒绝或超时，回到第 2 步核对 URCap、wrist 选项及 Scan/Activate。若示教器能开合但端口仍不可用，需要确认当前 URCap 是否提供 Gello 使用的 63352 服务；本 SDK 不支持用其他端口上的 RS485 转发服务替代它。
+
+以上检查通过、且已确认负载/TCP/工作空间后，将 YAML 的 **`arms[0].commissioned` 改为 `true`**，再运行：
 
 ```bash
-ur7e --config configs/ur7e.yaml gripper-activate
-ur7e --config configs/ur7e.yaml observe
 ur7e --config configs/ur7e.yaml keyboard
 ```
 
-`open_raw` / `closed_raw` 是实测开/合原始位置，默认 `0/255`。SDK 对外宽度为 `0`（闭合）至 `0.085`（打开）米，内部线性换算；这只是位置反馈推算的宽度，接触物体时不是精确测距。`speed` 和 `force` 是 Robotiq 的 `0..255` 原始量，不是 m/s 或牛顿。
+按 **空格**启用，按一次 **w** 测试向基座 x 正方向移动 **2 mm**，按 **] / [** 测试夹爪，按 **q** 退出。不要用 `observe` 当作被动连通测试：它会启动完整伺服会话并保持当前位置。
+
+夹爪配置中的 `open_raw / closed_raw` 默认 `0/255`，SDK 将位置线性换算为 `0..0.085 m` 的开度；这是估计宽度，不是精确测距。`speed / force` 为 Robotiq 原始 `0..255` 数值。
 
 ## 键盘与 ARX5
 
@@ -184,7 +240,10 @@ runtime/ 加载 configs/ 并管理上述生命周期
 
 ## 参考
 
+- [Robotiq e-Series 快速安装指南](https://blog.robotiq.com/hubfs/support-files/Quick_start_2Finger_e-Series_nocropmarks_EN.pdf)：URCap 安装、wrist 选项、Scan/Activate。
+- [Robotiq UR 完整手册](https://blog.robotiq.com/hubfs/support-files/2F-85_2F-140_UR_PDF_2026-03-17.pdf)：工具 I/O 控制权设置、§5.2.3 标准 2F-85 负载与 TCP。
+- [UR PolyScope 5 Remote Control](https://www.universal-robots.com/manuals/EN/HTML/SW5_20/Content/prod-usr-man/software/PolyScope/content/hamburger_menu_g5/System_remote_en.htm)：启用和切换远程控制的两个步骤。
 - [UMI](https://github.com/real-stanford/universal_manipulation_interface)：`umi/real_world/rtde_interpolation_controller.py`、`umi/common/pose_trajectory_interpolator.py`、`umi/real_world/bimanual_umi_env.py` 的独立进程、时间戳动作和观测对齐设计。当前参考仓库的环境文件名为 `bimanual_umi_env`。
 - [Gello](https://github.com/wuphilipp/gello_software)：`gello/robots/ur.py` 的 `URRobot` 与 `robotiq_gripper.py` 的 URCap socket 协议。此处针对 2F-85、米制宽度、有界等待和线程隔离重新实现。
 - [ur-rtde](https://sdurobotics.gitlab.io/ur_rtde/)：RTDE 控制/接收接口、`servoL` 与 watchdog。
-- 本机 `~/projects/arx5-sdk/python/arx5_interface.pyi`、`python/examples/drag_mode.py`：ARX5 Python API、RPY 位姿和重力补偿拖动配置。
+- `https://github.com/lanxinmob/arx5-sdk/python/arx5_interface.pyi`、`python/examples/drag_mode.py`：ARX5 Python API、RPY 位姿和重力补偿拖动配置。
