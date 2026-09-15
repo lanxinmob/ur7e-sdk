@@ -42,3 +42,8 @@ arx5:
     position_scale: 1.0
     gripper_width: 0.085
     state_timeout: 0.25
+    ur_home:
+      reference: ur7e_reference.yaml
+      speed: 0.1
+      acceleration: 0.1
+      timeout: 120.0

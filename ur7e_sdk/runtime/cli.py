@@ -91,26 +91,54 @@ def run(args):
         leader_configs = config.get("arx5", [])
         if len(leader_configs) != len(config["arms"]):
             raise ValueError("Configure one arx5 entry per UR arm")
+        from ur7e_sdk.runtime.ur_home import home_ur, load_homes
+
+        homes = load_homes(config, args.config)
     with ExitStack() as stack:
+        leaders = []
+        keyboard = None
+        if args.command == "arx5":
+            keyboard = stack.enter_context(TerminalKeyboard())
+            for lc in leader_configs:
+                leader = ARX5Leader(lc)
+                stack.callback(leader.close)
+                leaders.append(leader)
+            print("Space: return UR to reference and enable; q/Escape: exit")
+            while True:
+                keys = keyboard.read()
+                if "q" in keys or "\x1b" in keys:
+                    return
+                for leader in leaders:
+                    leader.read()
+                if " " in keys:
+                    break
+                time.sleep(0.02)
+
+            def poll_home():
+                if any(key in (" ", "q", "\x1b") for key in keyboard.read()):
+                    raise KeyboardInterrupt
+                for leader in leaders:
+                    leader.read()
+
+            print("UR returning slowly; Space/q/Escape: cancel and exit")
+            home_ur(config, homes, poll_home)
         env = stack.enter_context(BimanualUREnv(config))
         obs = _warmup(env, args.obs_steps)
         target = env.action_from_obs(obs)
-        leaders = []
-        keyboard = None
+        if leaders:
+            for leader, follower in zip(leaders, target):
+                leader.clutch(follower)
+            print("Enabled")
         if args.command in ("keyboard", "arx5"):
-            keyboard = stack.enter_context(TerminalKeyboard())
+            if keyboard is None:
+                keyboard = stack.enter_context(TerminalKeyboard())
             print("Space: enable/pause; q/Escape: stop; Tab: select arm")
             if args.command == "keyboard":
                 print("w/s x, a/d y, r/f z; i/k rx, j/l ry, u/o rz; [/] close/open")
                 teleop = KeyboardTeleop(target)
-            else:
-                for lc in leader_configs:
-                    leader = ARX5Leader(lc)
-                    stack.callback(leader.close)
-                    leaders.append(leader)
         # Stop the follower before terminal/leader teardown, including exceptions.
         stack.callback(env.controller.stop)
-        enabled = args.command == "policy"
+        enabled = args.command in ("policy", "arx5")
         env.exec_action(target[None], [time.time() + args.latency])
         start = time.monotonic()
         while args.duration <= 0 or time.monotonic() - start < args.duration:
