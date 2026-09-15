@@ -23,7 +23,9 @@ SAFETY = dict(
 
 
 def load_config(source, require_commissioned=True):
+    base_dir = Path.cwd()
     if isinstance(source, (str, Path)):
+        base_dir = Path(source).resolve().parent
         with open(source) as f:
             source = yaml.safe_load(f)
     c = deepcopy(source)
@@ -117,4 +119,10 @@ def load_config(source, require_commissioned=True):
             or camera.get("timeout", 0.5) <= 0
         ):
             raise ValueError("Invalid camera timeout")
+    for leader in c.get("arx5", []):
+        if "urdf_path" in leader:
+            path = (base_dir / Path(leader["urdf_path"]).expanduser()).resolve()
+            if not path.is_file():
+                raise ValueError(f"ARX URDF does not exist: {path}")
+            leader["urdf_path"] = str(path)
     return c

@@ -1,4 +1,6 @@
 import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -13,6 +15,14 @@ class ARX5Leader:
         self.config = config
         self.arx = arx
         rc = arx.RobotConfigFactory.get_instance().get_config(config.get("model", "X5"))
+        if config.get("urdf_path"):
+            path = Path(config["urdf_path"]).resolve()
+            model_name = ET.parse(path).getroot().get("name")
+            if model_name != config.get("model", "X5"):
+                raise ValueError(
+                    f"ARX URDF model {model_name!r} does not match configured model"
+                )
+            rc.urdf_path = str(path)
         cc = arx.ControllerConfigFactory.get_instance().get_config(
             "joint_controller", rc.joint_dof
         )
@@ -82,6 +92,7 @@ class ARX5Leader:
                     or not np.isclose(actual.gripper_kp, 0)
                     or not np.isclose(actual.gripper_kd, gripper_kd)
                     or not np.allclose(actual_rc.gravity_vector, rc.gravity_vector)
+                    or actual_rc.urdf_path != rc.urdf_path
                 ):
                     raise RuntimeError("ARX drag settings did not take effect")
                 print(
@@ -90,6 +101,8 @@ class ARX5Leader:
                     f"kp=0, kd={np.round(actual.kd(), 4).tolist()}, "
                     f"gripper_open_readout={actual_rc.gripper_open_readout:.4f}"
                 )
+                print(f"ARX binding: {getattr(arx, '__file__', 'unknown')}")
+                print(f"ARX URDF: {actual_rc.urdf_path}")
             except BaseException:
                 self.robot.set_to_damping()
                 raise
